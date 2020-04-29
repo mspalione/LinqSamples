@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.Entity;
 using System.IO;
 using System.Linq;
+using System.Xml.Linq;
 
 namespace Cars
 {
@@ -9,47 +11,55 @@ namespace Cars
     {
         static void Main(string[] args)
         {
-            var cars = ProcessCars("fuel.csv");
-            var manufacturers = ProcessManufacturers("manufacturers.csv");
+            Database.SetInitializer(new DropCreateDatabaseIfModelChanges<CarDb>());
+            InsertData();
+            QueryData();
 
-            //aggregate data
-            //query syntax
-            var query = from car in cars
-                        group car by car.Manufacturer into carGroup
-                        select new
-                        {
-                            Name = carGroup.Key,
-                            Max = carGroup.Max(c => c.Combined),
-                            Min = carGroup.Min(c => c.Combined),
-                            Avg = carGroup.Average(c => c.Combined)
-                        } into result
-                        orderby result.Max descending
-                        select result;
 
-            //method syntax
-            var query2 = cars.GroupBy(c => c.Manufacturer)
-                            .Select(g =>
-                            {
-                                var results = g.Aggregate(new CarStatistics(),
-                                                (acc, c) => acc.Accumulate(c),
-                                                acc => acc.Compute());
-                                return new
-                                {
-                                    Name = g.Key,
-                                    Avg = results.Average,
-                                    Min = results.Min,
-                                    Max = results.Max
-                                };
-                            })
-                            .OrderByDescending(r => r.Max);
+            //CreateXml();
+            //QueryXml();
 
-            foreach (var result in query2)    
-            {
-                Console.WriteLine($"{result.Name}");
-                Console.WriteLine($"\t Max: {result.Max}");
-                Console.WriteLine($"\t Min: {result.Min}");
-                Console.WriteLine($"\t Avg: {result.Avg}");
-            }
+            //var cars = ProcessCars("fuel.csv");
+            //var manufacturers = ProcessManufacturers("manufacturers.csv");
+
+            ////aggregate data
+            ////query syntax
+            //var query = from car in cars
+            //            group car by car.Manufacturer into carGroup
+            //            select new
+            //            {
+            //                Name = carGroup.Key,
+            //                Max = carGroup.Max(c => c.Combined),
+            //                Min = carGroup.Min(c => c.Combined),
+            //                Avg = carGroup.Average(c => c.Combined)
+            //            } into result
+            //            orderby result.Max descending
+            //            select result;
+
+            ////method syntax
+            //var query2 = cars.GroupBy(c => c.Manufacturer)
+            //                .Select(g =>
+            //                {
+            //                    var results = g.Aggregate(new CarStatistics(),
+            //                                    (acc, c) => acc.Accumulate(c),
+            //                                    acc => acc.Compute());
+            //                    return new
+            //                    {
+            //                        Name = g.Key,
+            //                        Avg = results.Average,
+            //                        Min = results.Min,
+            //                        Max = results.Max
+            //                    };
+            //                })
+            //                .OrderByDescending(r => r.Max);
+
+            //foreach (var result in query2)    
+            //{
+            //    Console.WriteLine($"{result.Name}");
+            //    Console.WriteLine($"\t Max: {result.Max}");
+            //    Console.WriteLine($"\t Min: {result.Min}");
+            //    Console.WriteLine($"\t Avg: {result.Avg}");
+            //}
 
             //// query syntax for groupjoin
             //var query = from manufacturer in manufacturers
@@ -164,6 +174,77 @@ namespace Cars
             //{
             //    Console.WriteLine($"{car.Name} : {car.Combined}");
             //}
+        }
+
+        private static void QueryData()
+        {
+            var db = new CarDb();
+            //query syntax
+            var query = from car in db.Cars
+                        orderby car.Combined descending, car.Name ascending
+                        select car;
+
+            //method syntax
+            var query2 =
+                db.Cars.OrderByDescending(c => c.Combined).ThenBy(c => c.Name).Take(10);
+
+            foreach (var car in query2) //query.Take(10) for query syntax
+            {
+                Console.WriteLine($"{car.Name}: {car.Combined}");
+            }
+        }
+
+        private static void InsertData()
+        {
+            var cars = ProcessCars("fuel.csv");
+            var db = new CarDb();
+
+            if (!db.Cars.Any())
+            {
+                foreach (var car in cars)
+                {
+                    db.Cars.Add(car);
+                }
+                db.SaveChanges();
+            }
+        }
+
+        private static void QueryXml()
+        {
+            var ns = (XNamespace)"http://pluralsight.com/cars/2016";
+            var ex = (XNamespace)"http://pluralsight.com/cars/2016/ex";
+            var document = XDocument.Load("fuel.xml");
+
+            var query =
+                from element in document.Element(ns + "Cars")?.Elements(ex + "Car") ?? Enumerable.Empty<XElement>()
+                where element.Attribute("Manufacturer")?.Value == "BMW"
+                select element.Attribute("Name").Value;
+
+            foreach (var name in query)
+            {
+                Console.WriteLine(name);
+            }
+        }
+
+        private static void CreateXml()
+        {
+            var records = ProcessCars("fuel.csv");
+
+            var ns = (XNamespace)"http://pluralsight.com/cars/2016";
+            var ex = (XNamespace)"http://pluralsight.com/cars/2016/ex";
+            var document = new XDocument();
+            var cars = new XElement(ns + "Cars",
+
+                from record in records
+                select new XElement(ex + "Car",
+                            new XAttribute("Name", record.Name),
+                            new XAttribute("Combined", record.Combined),
+                            new XAttribute("Manufacturer", record.Manufacturer)));
+
+            cars.Add(new XAttribute(XNamespace.Xmlns + "ex", ex));
+
+            document.Add(cars);
+            document.Save("fuel.xml");
         }
 
         public class CarStatistics
